@@ -1,5 +1,5 @@
 # gnoti
-A simple email notifier which uses the secret storage in Linux. To setup your email accound, first run
+A simple email notifier which uses the secret storage in Linux. To setup your email account, first run
 
 ```
 $ gnoti configure
