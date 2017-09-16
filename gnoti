@@ -133,4 +133,4 @@ while True:
     if tmp != last_uid:
         uiditem.set_secret(str(tmp))
         last_uid = tmp
-    time.sleep(5)
+    time.sleep(60)
