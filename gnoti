@@ -77,13 +77,15 @@ class Notifier:
         n.show()
 
 
-# Init bus
+# init bus
 bus = secretstorage.dbus_init()
 collection = secretstorage.get_default_collection(bus)
 attributes = {'application': 'gnoti'}
 
+# make sure we can access secret storage
 if collection.is_locked():
     print("Keyring is locked.")
+    sys.exit(1)
 
 if len(sys.argv) > 1:
     if sys.argv[1] == "configure":
