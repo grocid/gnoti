@@ -1,0 +1,32 @@
+#!/usr/bin/env python
+
+import secretstorage
+
+# init bus
+bus = secretstorage.dbus_init()
+collection = secretstorage.get_default_collection(bus)
+attributes = {'application': 'gnoti'}
+
+# make sure we can access secret storage
+if collection.is_locked():
+    print("Keyring is locked.")
+    sys.exit(1)
+
+try:
+    # Get username and pass from input
+    username = raw_input("E-mail: ").strip()
+    password = getpass.getpass("Password: ")
+    proceed = raw_input("This will replace all entries associated with this application. Proceed [y/N]: ")
+    if proceed.strip().lower() == "y":
+        # clean all data associated with this application
+        for secret in collection.search_items(attributes):
+            secret.delete()
+        # put in keyring
+        collection.create_item('password', attributes, password)
+        collection.create_item('email', attributes, username)
+except KeyboardInterrupt:
+    pass
+except:
+    print("Some error occurred.")
+    sys.exit(1)
+sys.exit(0)

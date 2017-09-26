@@ -1,136 +1,108 @@
 #!/usr/bin/env python
 
-import sys
+import os
+import signal
+import json
 import time
-import getpass
 import threading
-import notify2
-import webbrowser
-import imaplib2
-
-import email
-from email.header import decode_header
-
 import secretstorage
 
-class Notifier:
+import gi
+gi.require_version('Gtk', '3.0')
+gi.require_version('AppIndicator3', '0.1')
+gi.require_version('Notify', '0.7')
 
-    def __init__(self, username, password, last_uid):
-        # set credentials and last uid seen
-        self.username = username
-        self.password = password
-        self.last_uid = last_uid
+from gi.repository import Gtk
+from gi.repository import AppIndicator3 as appindicator
+from gi.repository import Notify as notify
+
+from emailreader import Email
+from credentials import Credentials
+
+APPINDICATOR_ID = 'gnotiindicator'
+
+class Application:
+
+    def __init__(self):
+        self.get_credentials()
+        self.reader = Email(self.secret.get("email").get_secret(), 
+                            self.secret.get("password").get_secret(),
+                            self.last_uid)
+        th = threading.Thread(target=self.checkmail)
+        th.daemon = True
+        th.start()
+
+        self.indicator = appindicator.Indicator.new(APPINDICATOR_ID, 
+                                                    os.path.abspath('email.svg'), 
+                                                    appindicator.IndicatorCategory.SYSTEM_SERVICES)
+        self.indicator.set_status(appindicator.IndicatorStatus.ACTIVE)
+        self.indicator.set_menu(self.build_menu(self.indicator))
+        notify.init(APPINDICATOR_ID)
+        Gtk.main()
+
+    def get_credentials(self):
+        bus = secretstorage.dbus_init()
+        collection = secretstorage.get_default_collection(bus)
+        attributes = {'application': 'gnoti'}
+
+        while collection.is_locked():
+            time.sleep(10)
+
+        items = collection.search_items(attributes)
+        self.secret = {item.get_label(): item for item in items}  
+        uiditem = self.secret.get("uid")
+        if uiditem.get_secret() == None:
+            uiditem = collection.create_item('uid', attributes, "-1")
+        self.last_uid = int(uiditem.get_secret())
+
+    def checkmail(self):
+        while True:
+            try:
+                unread, emails = self.reader.unread()
+                for msg_from, msg_subject in emails:
+                    self.noti(msg_from, msg_subject)
+                self.update_icon(unread)
+            except:
+                pass
+            time.sleep(30)
+
+    def update_icon(self, unread):
+        if unread:
+            icon = os.path.abspath('email_new.svg')
+        else:
+            icon = os.path.abspath('email.svg')
+        self.indicator.set_icon(icon)
+
+    def show_settings(self, _):
+        dialog = Credentials(self.secret.get("email").get_secret(),
+                             self.secret.get("password").get_secret())
+        response = dialog.run()
+        if response == Gtk.ResponseType.OK:
+            gmail = dialog.gmail.get_text()
+            password = dialog.pwinput.get_text()
+            self.secret[email] = gmail
+            self.secret[password] = password
+        dialog.destroy()
+
+    def build_menu(self, indicator):
+        menu = Gtk.Menu()
+        item_settings = Gtk.MenuItem('Settings')
+        item_settings.connect('activate', self.show_settings)
+        menu.append(item_settings)
+        item_quit = Gtk.MenuItem('Quit')
+        item_quit.connect('activate', self.quit)
+        menu.append(item_quit)
+        menu.show_all()
+        return menu
+
+    def noti(self, msg_from, msg_subject):
+        notify.Notification.new(msg_from, msg_subject, None).show()
+
+    def quit(self, _):
+        notify.uninit()
+        Gtk.main_quit()
 
 
-    def get_unread(self):
-        
-        # connect to gmail
-        conn = imaplib2.IMAP4_SSL('imap.gmail.com', 993)
-        conn.login(self.username, self.password)
-        conn.list()
-        conn.select('inbox')
-
-        # get uids of new mail
-        statuscode, uids = conn.search(None, '(UNSEEN)')
-        
-        # go through the uids
-        for uid in sorted(uids[0].split()):
-        
-            if int(uid) <= self.last_uid:
-                continue
-        
-            # get data from uids
-            statuscode, data = conn.fetch(uid, '(BODY[HEADER.FIELDS (SUBJECT FROM)])')
-            conn.store(uid, '-FLAGS','\\Seen') 
-            header = data[0][1]
-            msg = email.message_from_string(header)
-        
-            # get data
-            msg_from = msg.get("From")
-            msg_subject = msg.get("Subject")
-        
-            # if encoded, decode it
-            data, encoding = decode_header(msg_subject)[0]
-            if encoding != None:
-                msg_subject = data.decode(encoding)
-            data, encoding = decode_header(msg_from)[0]
-            if encoding != None:
-                msg_from = data.decode(encoding)
-            
-            # don't show already shown ones
-            if int(uid) > self.last_uid:
-                self.notify(msg_from, msg_subject)
-
-            # update last uid seen
-            self.last_uid = max(int(uid), self.last_uid)
-
-        # clean up and disconnect
-        conn.close()
-        conn.logout()
-
-        return self.last_uid
-
-    def notify(self, msg_from, msg_subject):
-        n = notify2.Notification(msg_from,
-                                 msg_subject,
-                                 "emblem-mail")
-        n.show()
-
-
-# init bus
-bus = secretstorage.dbus_init()
-collection = secretstorage.get_default_collection(bus)
-attributes = {'application': 'gnoti'}
-
-# make sure we can access secret storage
-if collection.is_locked():
-    print("Keyring is locked.")
-    sys.exit(1)
-
-if len(sys.argv) > 1:
-    if sys.argv[1] == "configure":
-        try:
-            # Get username and pass from input
-            username = raw_input("E-mail: ").strip()
-            password = getpass.getpass("Password: ")
-            proceed = raw_input("This will replace all entries associated with this application. Proceed [y/N]: ")
-            if proceed.strip().lower() == "y":
-                # clean all data associated with this application
-                for secret in collection.search_items(attributes):
-                    secret.delete()
-                # put in keyring
-                collection.create_item('password', attributes, password)
-                collection.create_item('email', attributes, username)
-        except KeyboardInterrupt:
-            pass
-        except:
-            print("Some error occurred.")
-        sys.exit(0)
-    else:
-        print("{} is not a valid argument.".format(sys.argv[1]))
-        sys.exit(1)
-
-items = collection.search_items(attributes)
-secret = {item.get_label(): item for item in items}  
-
-# init notifier
-notify2.init('gnoti')
-
-# get last uid
-uiditem = secret.get("uid")
-if uiditem.get_secret() == None:
-    uiditem = collection.create_item('uid', attributes, "-1")
-last_uid = int(uiditem.get_secret())
-
-# get credentials
-notifier = Notifier(secret.get("email").get_secret(), 
-                    secret.get("password").get_secret(),
-                    last_uid)
-
-# run until doomsday
-while True:
-    tmp = notifier.get_unread()
-    if tmp != last_uid:
-        uiditem.set_secret(str(tmp))
-        last_uid = tmp
-    time.sleep(60)
+if __name__ == "__main__":
+    signal.signal(signal.SIGINT, signal.SIG_DFL)
+    Application()
