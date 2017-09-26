@@ -33,7 +33,7 @@ class Application:
         th.start()
 
         self.indicator = appindicator.Indicator.new(APPINDICATOR_ID, 
-                                                    os.path.abspath('email.svg'), 
+                                                    os.path.abspath('assets/email.svg'), 
                                                     appindicator.IndicatorCategory.SYSTEM_SERVICES)
         self.indicator.set_status(appindicator.IndicatorStatus.ACTIVE)
         self.indicator.set_menu(self.build_menu(self.indicator))
@@ -68,9 +68,9 @@ class Application:
 
     def update_icon(self, unread):
         if unread:
-            icon = os.path.abspath('email_new.svg')
+            icon = os.path.abspath('assets/email_new.svg')
         else:
-            icon = os.path.abspath('email.svg')
+            icon = os.path.abspath('assets/email.svg')
         self.indicator.set_icon(icon)
 
     def show_settings(self, _):
