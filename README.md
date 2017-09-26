@@ -14,5 +14,5 @@ $ gnoti
 ```
 and the program will start running. 
 
-!(gnoti)[notifier.png]
+![gnoti](notifier.png)
 
